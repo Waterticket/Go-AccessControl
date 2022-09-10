@@ -56,7 +56,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				var behind = currentIdx - req_idx
 				var inbucket = 0
 
-				if rank < (config.Connection.AccessSize)*4 { // may in bucket
+				if rank < (config.Connection.AccessSize)*5 { // may in bucket
 					score := zscoreBucket(string(token))
 					if score > 0 {
 						inbucket = 1
