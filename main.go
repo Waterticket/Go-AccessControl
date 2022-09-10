@@ -56,10 +56,11 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				var behind = currentIdx - req_idx
 				var inbucket = 0
 
-				if rank < (config.Connection.AccessSize)*2 { // may in bucket
+				if rank < (config.Connection.AccessSize)*4 { // may in bucket
 					score := zscoreBucket(string(token))
 					if score > 0 {
 						inbucket = 1
+						//zaddBucket(string(token)) // renew token
 					}
 				}
 
@@ -75,6 +76,15 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 			var lastProcessedIdx = getLastProcessedIdx()
 			var currentIdx = getCurrentIdx()
 			ctx.WriteString(fmt.Sprintf("countOfBucket=%d, countOfPendingQueue=%d, lastProcessedIdx=%d, currentIdx=%d", countOfBucket, countOfPendingQueue, lastProcessedIdx, currentIdx))
+			return
+
+		case "/pq-cgi/forceclear":
+			var currentIdx = getCurrentIdx()
+			setLastProcessedIdx(currentIdx)
+			delBucket()
+			delPendingQueue()
+
+			ctx.WriteString("DONE")
 			return
 
 		default:
@@ -174,16 +184,17 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				ctx.Response.Header.SetCookie(&tokenCookie)
 
 				httpProxy(ctx)
-				var req_idx = getIdxFromToken(token)
+				var reqIdx = getIdxFromToken(token)
 				lastProcessedIdx := getLastProcessedIdx()
-				if req_idx > lastProcessedIdx {
-					setLastProcessedIdx(req_idx)
+				if reqIdx > lastProcessedIdx {
+					setLastProcessedIdx(reqIdx)
 				}
 				zremBucket(string(token))
-				next_req := popPendingQueue()
-				if len(next_req) > 0 {
+
+				nextReq := popPendingQueue()
+				if len(nextReq) > 0 {
 					// 다음 요청이 있으면 처리
-					zaddBucket(next_req)
+					zaddBucket(nextReq)
 				}
 			} else {
 				// delete cookie
@@ -262,8 +273,8 @@ func main() {
 
 				countOfBucket := getCountOfBucket()
 
-				var cnt int64 = 0
-				for (config.Connection.AccessSize)*2 > countOfBucket {
+				var cnt = countOfBucket
+				for (config.Connection.AccessSize)*2 > cnt {
 					nextReq := popPendingQueue()
 					if len(nextReq) > 0 {
 						// 다음 요청이 있으면 처리
@@ -273,7 +284,7 @@ func main() {
 						break
 					}
 				}
-				log.Println("Added count: ", cnt)
+				log.Println("Added count: ", (cnt - countOfBucket))
 			}
 			time.Sleep(time.Second * 1)
 		}

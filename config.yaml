@@ -4,7 +4,7 @@ Redis:
   DB: 0
 
 Connection:
-  AccessSize: 5
+  AccessSize: 30
   TTL: 3
 
 Server:

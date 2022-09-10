@@ -172,6 +172,22 @@ func zremrangebyscoreBucket() int64 {
 	return count
 }
 
+func delBucket() {
+	// delete bucket
+	err := rdb.Del(ctx, "accesscontrol:bucket").Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func delPendingQueue() {
+	// delete pending queue
+	err := rdb.Del(ctx, "accesscontrol:pending_queue").Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func getCountOfBucket() int64 {
 	// get count of bucket
 	count, err := rdb.ZCard(ctx, "accesscontrol:bucket").Result()
