@@ -106,16 +106,18 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 			if reqIdx < lastProcessedIdx+(config.Connection.AccessSize*2) {
 				// 바로 처리 가능
 				httpProxy(ctx)
-				lastProcessedIdx = getLastProcessedIdx()
-				if reqIdx > lastProcessedIdx {
-					setLastProcessedIdx(reqIdx)
-				}
+				go func() {
+					lastProcessedIdx = getLastProcessedIdx()
+					if reqIdx > lastProcessedIdx {
+						setLastProcessedIdx(reqIdx)
+					}
 
-				var nextReq = popPendingQueue()
-				if len(nextReq) > 0 {
-					// 다음 요청이 있으면 처리
-					zaddBucket(nextReq)
-				}
+					var nextReq = popPendingQueue()
+					if len(nextReq) > 0 {
+						// 다음 요청이 있으면 처리
+						zaddBucket(nextReq)
+					}
+				}()
 			} else {
 				// 처리 불가능 -> 대기
 				buf := make([]byte, 22)
@@ -184,18 +186,20 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				ctx.Response.Header.SetCookie(&tokenCookie)
 
 				httpProxy(ctx)
-				var reqIdx = getIdxFromToken(token)
-				lastProcessedIdx := getLastProcessedIdx()
-				if reqIdx > lastProcessedIdx {
-					setLastProcessedIdx(reqIdx)
-				}
-				zremBucket(string(token))
+				go func() {
+					var reqIdx = getIdxFromToken(token)
+					lastProcessedIdx := getLastProcessedIdx()
+					if reqIdx > lastProcessedIdx {
+						setLastProcessedIdx(reqIdx)
+					}
+					zremBucket(string(token))
 
-				nextReq := popPendingQueue()
-				if len(nextReq) > 0 {
-					// 다음 요청이 있으면 처리
-					zaddBucket(nextReq)
-				}
+					nextReq := popPendingQueue()
+					if len(nextReq) > 0 {
+						// 다음 요청이 있으면 처리
+						zaddBucket(nextReq)
+					}
+				}()
 			} else {
 				// delete cookie
 				tokenCookie := fasthttp.Cookie{}

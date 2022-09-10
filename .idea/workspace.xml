@@ -52,12 +52,29 @@
   }
 }</component>
   <component name="RunManager">
+    <configuration default="true" type="GoApplicationRunConfiguration" factoryName="Go Application">
+      <module name="AccessControl" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="FILE" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
     <configuration name="go build AccessControl" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
       <module name="AccessControl" />
       <working_directory value="$PROJECT_DIR$" />
       <kind value="DIRECTORY" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$/" />
+      <method v="2" />
+    </configuration>
+    <configuration default="true" type="GoTestRunConfiguration" factoryName="Go Test">
+      <module name="AccessControl" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="DIRECTORY" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
       <method v="2" />
     </configuration>
   </component>
@@ -72,7 +89,8 @@
       <workItem from="1662727182180" duration="694000" />
       <workItem from="1662727884154" duration="16977000" />
       <workItem from="1662771670951" duration="16829000" />
-      <workItem from="1662808413223" duration="1429000" />
+      <workItem from="1662808413223" duration="2159000" />
+      <workItem from="1662816862199" duration="76000" />
     </task>
     <servers />
   </component>
