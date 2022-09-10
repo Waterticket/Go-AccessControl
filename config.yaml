@@ -1,0 +1,13 @@
+Redis:
+  Addr: "localhost:6379"
+  Password: ""
+  DB: 0
+
+Connection:
+  AccessSize: 5
+  TTL: 3
+
+Server:
+  Number: 2
+  Master: true
+  WaitingHTMLFile: "template/index.html"

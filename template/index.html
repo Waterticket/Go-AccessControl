@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>접속 대기중입니다</title>
+  </head>
+  <body>
+    <h1>접속 대기중입니다.</h1>
+    <p>사이트 접속량이 많아 대기중입니다. 현재 앞에 <b><span id="rank">0</span>명</b>이 대기중이며, 뒤에 <b><span id="behind">0</span>명</b>이 대기중입니다.</p>
+    <p>새로고침시 순번이 뒤로 밀릴 수 있습니다.</p>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.1/jquery.min.js" integrity="sha512-aVKKRRi/Q/YV+4mjoKBsE4x3H+BkegoM/em46NNlCqNTmUYADjBbeNefNxYV7giUp0VxICtqdrbqU7iVaeZNXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script>
+    $(document).ready(function() {
+      var count = 0;
+      //get token from cookie
+      var token = document.cookie.split('; ').find(row => row.startsWith('ACS-Token='))?.split('=')[1];
+      var rank = document.cookie.split('; ').find(row => row.startsWith('ACS-Rank='))?.split('=')[1];
+      $('#rank').text(rank);
+
+      //unset rank cookie
+      document.cookie = "ACS-Rank=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+      var interval = setInterval(function() {
+        $.ajax({
+          url: '/pq-cgi/query',
+          type: 'GET',
+          dataType: 'json',
+          beforeSend : function(xhr){
+            xhr.setRequestHeader("ACS-Token", token);
+          },
+          success: function(data) {
+            rank = data.rank;
+            behind = data.behind;
+            inbucket = data.inbucket;
+            if (inbucket == 1) {
+              window.location.reload();
+            }
+
+            $('#rank').text(rank);
+            $('#behind').text(behind);
+          }
+        });
+      }, 2000);
+    });
+  </script>
+  </body>
+</html>
