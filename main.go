@@ -7,8 +7,10 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/valyala/fasthttp"
 	proxy "github.com/yeqown/fasthttp-reverse-proxy/v2"
@@ -23,7 +25,7 @@ var (
 
 // ProxyPoolHandler ...
 func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
-	requestURI := string(ctx.RequestURI())
+	requestURI := b2s(ctx.RequestURI())
 	log.Println("requestURI=", requestURI)
 
 	urlPath := strings.Split(requestURI, "?")[0]
@@ -45,26 +47,26 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 
 			var lastProcessedIdx = getLastProcessedIdx()
 			var currentIdx = getCurrentIdx()
+			ctx.SetContentType("application/json")
 
 			if len(token) > 0 {
-				var req_idx = getIdxFromToken(token)
+				var reqIdx = getIdxFromToken(token)
 				var rank int64 = 0
-				if req_idx > lastProcessedIdx {
-					rank = req_idx - lastProcessedIdx
+				if reqIdx > lastProcessedIdx {
+					rank = reqIdx - lastProcessedIdx
 				}
 
-				var behind = currentIdx - req_idx
-				var inbucket = 0
+				var behind = currentIdx - reqIdx
+				var inBucket = 0
 
 				if rank < (config.Connection.AccessSize)*5 { // may in bucket
-					score := zscoreBucket(string(token))
+					score := zscoreBucket(b2s(token))
 					if score > 0 {
-						inbucket = 1
-						//zaddBucket(string(token)) // renew token
+						inBucket = 1
 					}
 				}
 
-				ctx.WriteString(fmt.Sprintf(`{"rank":%d,"behind":%d,"inbucket":%d}`, rank, behind, inbucket))
+				ctx.WriteString(fmt.Sprintf(`{"rank":%d,"behind":%d,"inBucket":%d}`, rank, behind, inBucket))
 			} else {
 				ctx.WriteString(fmt.Sprintf(`{"lastProcessedIdx":%d,"currentIdx":%d}`, lastProcessedIdx, currentIdx))
 			}
@@ -138,8 +140,9 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				}
 
 				// if request is post
-				if ctx.IsPost() && string(ctx.Request.Header.Peek("Content-Type")) == "application/json" && string(ctx.Request.Header.Peek("X-ACS-Request")) == "true" {
+				if ctx.IsPost() && string(ctx.Request.Header.Peek("X-ACS-Request")) == "true" {
 					ctx.SetStatusCode(253)
+					ctx.SetContentType("application/json")
 					ctx.WriteString(fmt.Sprintf(`{"token":"%s",lastProcessedIdx":%d,"rank":%d,"Idx":%d}`, token, lastProcessedIdx, rank, reqIdx))
 					return
 				} else {
@@ -170,8 +173,9 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				}
 			}
 		} else {
+			tokenStr := b2s(token)
 			// if token
-			var score = zscoreBucket(string(token))
+			var score = zscoreBucket(tokenStr)
 			if score > 0 {
 				// 바로 처리 가능
 
@@ -192,7 +196,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					if reqIdx > lastProcessedIdx {
 						setLastProcessedIdx(reqIdx)
 					}
-					zremBucket(string(token))
+					zremBucket(tokenStr)
 
 					nextReq := popPendingQueue()
 					if len(nextReq) > 0 {
@@ -215,7 +219,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					ctx.SetStatusCode(401)
 					ctx.WriteString("401 Unauthorized")
 				} else {
-					ctx.Redirect(string(ctx.RequestURI()), 302)
+					ctx.Redirect(b2s(ctx.RequestURI()), 302)
 				}
 
 				return
@@ -225,12 +229,13 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func getIdxFromToken(token []byte) int64 {
-	var buf, err = base64.RawURLEncoding.DecodeString(string(token))
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(token)))
+	var _, err = base64.RawURLEncoding.Decode(decoded, token)
 	if err != nil {
 		return 0
 	}
 
-	return int64(binary.BigEndian.Uint64(buf[14:]))
+	return int64(binary.BigEndian.Uint64(decoded[14:22]))
 }
 
 func httpProxy(ctx *fasthttp.RequestCtx) {
@@ -250,6 +255,19 @@ func factory(hostAddr string) (*proxy.ReverseProxy, error) {
 	return p, nil
 }
 
+func b2s(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
+}
+
+func s2b(s string) (b []byte) {
+	bh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	bh.Data = sh.Data
+	bh.Cap = sh.Len
+	bh.Len = sh.Len
+	return b
+}
+
 func main() {
 	newRedisDB()
 	WaitingHTML, _ = os.ReadFile(config.Server.WaitingHTMLFile)
@@ -262,7 +280,7 @@ func main() {
 				lastProcessedIdx := getLastProcessedIdx()
 				buckets := zrangebyscoreBucket()
 				for _, bucket := range buckets {
-					idx := getIdxFromToken([]byte(bucket))
+					idx := getIdxFromToken(s2b(bucket))
 					if idx > lastProcessedIdx {
 						lastProcessedIdx = idx
 					}
