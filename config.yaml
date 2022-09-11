@@ -4,10 +4,20 @@ Redis:
   DB: 0
 
 Connection:
-  AccessSize: 30
-  TTL: 3
+  AccessSize: 5
+  BucketTTLMilliseconds: 3000
 
 Server:
-  Number: 2
+  Sequence: 1
   Master: true
+  Addr: ":8083"
   WaitingHTMLFile: "template/index.html"
+
+Client:
+  HeartbeatRedisTTLMilliseconds: 10000
+
+Proxy:
+    Addr: "localhost:9090"
+    TimeoutMilliseconds: 3000
+    PoolConnectionCapacityMin: 100
+    PoolConnectionCapacityMax: 1000

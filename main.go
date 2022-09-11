@@ -26,10 +26,10 @@ var (
 // ProxyPoolHandler ...
 func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 	requestURI := b2s(ctx.RequestURI())
-	log.Println("requestURI=", requestURI)
+	//log.Println("requestURI=", requestURI)
 
 	urlPath := strings.Split(requestURI, "?")[0]
-	log.Println("urlPath=", urlPath)
+	//log.Println("urlPath=", urlPath)
 
 	//if urlPath has dot like file
 	if strings.Contains(urlPath, ".") {
@@ -45,8 +45,8 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				token = ctx.Request.Header.Cookie("ACS-Token")
 			}
 
-			var lastProcessedIdx = getLastProcessedIdx()
-			var currentIdx = getCurrentIdx()
+			var lastProcessedIdx = getLastProcessedIdxCache() //getLastProcessedIdx()
+			var currentIdx = getCurrentIdxCache()             //getCurrentIdx()
 			ctx.SetContentType("application/json")
 
 			if len(token) > 0 {
@@ -58,15 +58,21 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 
 				var behind = currentIdx - reqIdx
 				var inBucket = 0
+				var tokenStr = b2s(token)
 
-				if rank < (config.Connection.AccessSize)*5 { // may in bucket
-					score := zscoreBucket(b2s(token))
+				//if rank < (config.Connection.AccessSize)*10 { // may in bucket
+				if true {
+					score := zscoreBucket(tokenStr)
 					if score > 0 {
 						inBucket = 1
 					}
 				}
 
-				ctx.WriteString(fmt.Sprintf(`{"rank":%d,"behind":%d,"inBucket":%d}`, rank, behind, inBucket))
+				ctx.WriteString(fmt.Sprintf(`{"rank":%d,"behind":%d,"inbucket":%d,"idx":%d}`, rank, behind, inBucket, reqIdx))
+				go func() {
+					// heartbeat to redis
+					setHeartbeat(tokenStr)
+				}()
 			} else {
 				ctx.WriteString(fmt.Sprintf(`{"lastProcessedIdx":%d,"currentIdx":%d}`, lastProcessedIdx, currentIdx))
 			}
@@ -87,6 +93,20 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 			delPendingQueue()
 
 			ctx.WriteString("DONE")
+			return
+
+		case "/pq-cgi/generatetoken":
+			var reqIdx = getNextIdx()
+			buf := make([]byte, 22)
+			ts := uint32(time.Now().Unix())
+			binary.BigEndian.PutUint32(buf[0:], rand.Uint32())          // random
+			binary.BigEndian.PutUint32(buf[4:], ts)                     // timestamp
+			binary.BigEndian.PutUint16(buf[8:], config.Server.Sequence) // server number
+			binary.BigEndian.PutUint32(buf[10:], serverRequest)         // server request
+			binary.BigEndian.PutUint64(buf[14:], uint64(reqIdx))        // request index
+			var token = base64.RawURLEncoding.EncodeToString(buf)
+			serverRequest++
+			ctx.WriteString(token)
 			return
 
 		default:
@@ -124,11 +144,11 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				// 처리 불가능 -> 대기
 				buf := make([]byte, 22)
 				ts := uint32(time.Now().Unix())
-				binary.BigEndian.PutUint32(buf[0:], rand.Uint32())        // random
-				binary.BigEndian.PutUint32(buf[4:], ts)                   // timestamp
-				binary.BigEndian.PutUint16(buf[8:], config.Server.Number) // server number
-				binary.BigEndian.PutUint32(buf[10:], serverRequest)       // server request
-				binary.BigEndian.PutUint64(buf[14:], uint64(reqIdx))      // request index
+				binary.BigEndian.PutUint32(buf[0:], rand.Uint32())          // random
+				binary.BigEndian.PutUint32(buf[4:], ts)                     // timestamp
+				binary.BigEndian.PutUint16(buf[8:], config.Server.Sequence) // server number
+				binary.BigEndian.PutUint32(buf[10:], serverRequest)         // server request
+				binary.BigEndian.PutUint64(buf[14:], uint64(reqIdx))        // request index
 				serverRequest++
 
 				var token = base64.RawURLEncoding.EncodeToString(buf)
@@ -203,6 +223,8 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 						// 다음 요청이 있으면 처리
 						zaddBucket(nextReq)
 					}
+
+					delHeartbeat(tokenStr)
 				}()
 			} else {
 				// delete cookie
@@ -229,17 +251,21 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func getIdxFromToken(token []byte) int64 {
-	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(token)))
-	var _, err = base64.RawURLEncoding.Decode(decoded, token)
+	//decoded := make([]byte, base64.StdEncoding.DecodedLen(len(token)))
+	//var _, err = base64.RawURLEncoding.Decode(decoded, token)
+	decoded, err := base64.RawURLEncoding.DecodeString(b2s(token))
 	if err != nil {
-		return 0
+		return -1
+	}
+	if len(decoded) != 22 {
+		return -1
 	}
 
 	return int64(binary.BigEndian.Uint64(decoded[14:22]))
 }
 
 func httpProxy(ctx *fasthttp.RequestCtx) {
-	proxyServer, err := pool.Get("localhost:9090")
+	proxyServer, err := pool.Get(config.Proxy.Addr)
 	if err != nil {
 		log.Println("ProxyPoolHandler got an error: ", err)
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -251,7 +277,7 @@ func httpProxy(ctx *fasthttp.RequestCtx) {
 }
 
 func factory(hostAddr string) (*proxy.ReverseProxy, error) {
-	p := proxy.NewReverseProxy(hostAddr)
+	p := proxy.NewReverseProxy(hostAddr, proxy.WithTimeout(time.Duration(config.Proxy.TimeoutMilliseconds)*time.Millisecond))
 	return p, nil
 }
 
@@ -275,8 +301,17 @@ func main() {
 	go func() {
 		for {
 			serverRequest = 0
+			getCurrentIdx() // CurrentIdx 초기화
+			getLastProcessedIdx()
+			time.Sleep(time.Second * 1)
+		}
+	}()
 
-			if config.Server.Master {
+	if config.Server.Master {
+		go func() {
+			for {
+				// Garbage Collection
+
 				lastProcessedIdx := getLastProcessedIdx()
 				buckets := zrangebyscoreBucket()
 				for _, bucket := range buckets {
@@ -296,25 +331,41 @@ func main() {
 				countOfBucket := getCountOfBucket()
 
 				var cnt = countOfBucket
+				var deletedIdx int64 = 0
 				for (config.Connection.AccessSize)*2 > cnt {
 					nextReq := popPendingQueue()
 					if len(nextReq) > 0 {
-						// 다음 요청이 있으면 처리
+						heartbeat := getHeartbeat(nextReq)
+						if heartbeat < 0 {
+							deletedIdx = getIdxFromToken(s2b(nextReq))
+							go func() {
+								// Heartbeat delete for prevent Memory Leak
+								delHeartbeat(nextReq)
+							}()
+							continue
+						}
+
 						zaddBucket(nextReq)
 						cnt++
 					} else {
 						break
 					}
 				}
-				log.Println("Added count: ", (cnt - countOfBucket))
-			}
-			time.Sleep(time.Second * 1)
-		}
-	}()
 
-	initialCap, maxCap := 100, 1000
+				if deletedIdx > 0 {
+					setLastProcessedIdx(deletedIdx)
+				}
+
+				log.Println("Added count: ", cnt-countOfBucket)
+
+				time.Sleep(time.Millisecond * 100)
+			}
+		}()
+	}
+
+	initialCap, maxCap := config.Proxy.PoolConnectionCapacityMin, config.Proxy.PoolConnectionCapacityMax
 	pool, err = proxy.NewChanPool(initialCap, maxCap, factory)
-	if err := fasthttp.ListenAndServe(":8083", ProxyPoolHandler); err != nil {
+	if err := fasthttp.ListenAndServe(config.Server.Addr, ProxyPoolHandler); err != nil {
 		panic(err)
 	}
 }

@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	rdb *redis.Client
-	ctx = context.Background()
+	rdb                *redis.Client
+	ctx                      = context.Background()
+	__LastProcessedIdx int64 = 0
+	__CurrentIdx       int64 = 0
 )
 
 func newRedisDB() {
@@ -68,7 +70,13 @@ func getCurrentIdx() int64 {
 		log.Fatal(err)
 	}
 
+	__CurrentIdx = idx
+
 	return idx
+}
+
+func getCurrentIdxCache() int64 {
+	return __CurrentIdx
 }
 
 func getLastProcessedIdx() int64 {
@@ -78,15 +86,21 @@ func getLastProcessedIdx() int64 {
 		log.Fatal(err)
 	}
 
+	if idx > __LastProcessedIdx {
+		__LastProcessedIdx = idx
+	}
+
 	return idx
 }
 
-func setLastProcessedIdx(idx int64) {
-	lastProcessedIdx := getLastProcessedIdx()
-	if lastProcessedIdx > idx {
-		return
-	}
+func getLastProcessedIdxCache() int64 {
+	return __LastProcessedIdx
+}
 
+func setLastProcessedIdx(idx int64) {
+	if idx > __LastProcessedIdx {
+		__LastProcessedIdx = idx
+	}
 	err := rdb.Set(ctx, "accesscontrol:last_processed_idx", idx, 0).Err()
 	if err != nil {
 		log.Fatal(err)
@@ -115,9 +129,9 @@ func pushPendingQueue(token string) {
 
 func zaddBucket(token string) {
 	// add to bucket
-	var timestamp = time.Now().Unix()
+	var timestamp = time.Now().UnixMilli()
 	err := rdb.ZAdd(ctx, "accesscontrol:bucket", redis.Z{
-		Score:  float64(timestamp + config.Connection.TTL),
+		Score:  float64(timestamp + config.Connection.BucketTTLMilliseconds),
 		Member: token,
 	}).Err()
 	if err != nil {
@@ -149,7 +163,7 @@ func zrangebyscoreBucket() []string {
 	// get range of bucket
 	tokens, err := rdb.ZRangeByScore(ctx, "accesscontrol:bucket", &redis.ZRangeBy{
 		Min: "-inf",
-		Max: fmt.Sprintf("%d", time.Now().Unix()),
+		Max: fmt.Sprintf("%d", time.Now().UnixMilli()),
 	}).Result()
 	if err != nil {
 		if err != redis.Nil {
@@ -162,7 +176,7 @@ func zrangebyscoreBucket() []string {
 
 func zremrangebyscoreBucket() int64 {
 	// remove from bucket
-	count, err := rdb.ZRemRangeByScore(ctx, "accesscontrol:bucket", "-inf", fmt.Sprintf("%d", time.Now().Unix())).Result()
+	count, err := rdb.ZRemRangeByScore(ctx, "accesscontrol:bucket", "-inf", fmt.Sprintf("%d", time.Now().UnixMilli())).Result()
 	if err != nil {
 		if err != redis.Nil {
 			log.Fatal(err)
@@ -210,4 +224,34 @@ func getCountOfPendingQueue() int64 {
 	}
 
 	return count
+}
+
+func setHeartbeat(token string) {
+	// set heartbeat
+	err := rdb.Set(ctx, "accesscontrol:heartbeat:"+token, time.Now().UnixMilli(), time.Duration(config.Client.HeartbeatRedisTTLMilliseconds)*time.Millisecond).Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func getHeartbeat(token string) int64 {
+	// get heartbeat
+	heartbeat, err := rdb.Get(ctx, "accesscontrol:heartbeat:"+token).Int64()
+	if err != nil {
+		if err != redis.Nil {
+			log.Fatal(err)
+		} else {
+			return -1
+		}
+	}
+
+	return heartbeat
+}
+
+func delHeartbeat(token string) {
+	// delete heartbeat
+	err := rdb.Del(ctx, "accesscontrol:heartbeat:"+token).Err()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
