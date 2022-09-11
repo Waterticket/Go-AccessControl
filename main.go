@@ -38,7 +38,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 	}
 
 	if strings.HasPrefix(requestURI, "/pq-cgi/") {
-		switch requestURI {
+		switch urlPath {
 		case "/pq-cgi/query":
 			var token = ctx.Request.Header.Peek("X-ACS-Token")
 			if len(token) == 0 {
@@ -57,7 +57,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				}
 
 				var behind = currentIdx - reqIdx
-				var inBucket = 0
+				var inBucket = -1
 				var tokenStr = b2s(token)
 
 				//if rank < (config.Connection.AccessSize)*10 { // may in bucket
@@ -65,6 +65,8 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					score := zscoreBucket(tokenStr)
 					if score > 0 {
 						inBucket = 1
+					} else {
+						inBucket = 0
 					}
 				}
 

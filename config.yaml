@@ -4,7 +4,7 @@ Redis:
   DB: 0
 
 Connection:
-  AccessSize: 5
+  AccessSize: 30
   BucketTTLMilliseconds: 3000
 
 Server:
