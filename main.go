@@ -315,6 +315,7 @@ func main() {
 	defer logFile.Close()
 
 	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	go func() {
 		for {
