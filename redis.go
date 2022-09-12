@@ -67,7 +67,11 @@ func getCurrentIdx() int64 {
 	// get current index
 	idx, err := rdb.Get(ctx, "accesscontrol:current_idx").Int64()
 	if err != nil {
-		log.Fatal(err)
+		if err != redis.Nil {
+			log.Fatal(err)
+		} else {
+			return __CurrentIdx
+		}
 	}
 
 	__CurrentIdx = idx
@@ -83,7 +87,11 @@ func getLastProcessedIdx() int64 {
 	// get last processed index
 	idx, err := rdb.Get(ctx, "accesscontrol:last_processed_idx").Int64()
 	if err != nil {
-		log.Fatal(err)
+		if err != redis.Nil {
+			log.Fatal(err)
+		} else {
+			return __LastProcessedIdx
+		}
 	}
 
 	if idx > __LastProcessedIdx {

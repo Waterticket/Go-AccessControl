@@ -367,7 +367,7 @@ func main() {
 							go func() {
 								// Heartbeat delete for prevent Memory Leak
 								delHeartbeat(nextReq)
-								setLastProcessedIdx(deletedIdx)
+								setLastProcessedIdx(deletedIdx) // 무효키가 많으면 유용하나, 그 외에는 그닥?
 							}()
 							continue
 						}
