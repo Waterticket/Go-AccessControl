@@ -4,8 +4,8 @@ Redis:
   DB: 0
 
 Connection:
-  AccessSize: 30
-  BucketTTLMilliseconds: 3000
+  AccessSize: 2
+  BucketTTLMilliseconds: 10000
 
 Server:
   Sequence: 1

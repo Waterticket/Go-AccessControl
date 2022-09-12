@@ -37,14 +37,14 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	var token = ctx.Request.Header.Peek("X-ACS-Token")
+	if len(token) == 0 {
+		token = ctx.Request.Header.Cookie("ACS-Token")
+	}
+
 	if strings.HasPrefix(requestURI, "/pq-cgi/") {
 		switch urlPath {
 		case "/pq-cgi/query":
-			var token = ctx.Request.Header.Peek("X-ACS-Token")
-			if len(token) == 0 {
-				token = ctx.Request.Header.Cookie("ACS-Token")
-			}
-
 			var lastProcessedIdx = getLastProcessedIdxCache() //getLastProcessedIdx()
 			var currentIdx = getCurrentIdxCache()             //getCurrentIdx()
 			ctx.SetContentType("application/json")
@@ -70,10 +70,13 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					}
 				}
 
+				log.Println("[query] reqIdx=", reqIdx, "lastProcessedIdx=", lastProcessedIdx, "currentIdx=", currentIdx, "rank=", rank, "behind=", behind, "inBucket=", inBucket)
+
 				ctx.WriteString(fmt.Sprintf(`{"rank":%d,"behind":%d,"inbucket":%d,"idx":%d}`, rank, behind, inBucket, reqIdx))
 				go func() {
 					// heartbeat to redis
 					setHeartbeat(tokenStr)
+					log.Println("[heartbeat] reqIdx=", reqIdx, "token=", tokenStr)
 				}()
 			} else {
 				ctx.WriteString(fmt.Sprintf(`{"lastProcessedIdx":%d,"currentIdx":%d}`, lastProcessedIdx, currentIdx))
@@ -117,12 +120,6 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 			return
 		}
 	} else {
-		var token = ctx.Request.Header.Peek("X-ACS-Token")
-
-		if len(token) == 0 {
-			token = ctx.Request.Header.Cookie("ACS-Token")
-		}
-
 		if len(token) == 0 {
 			// no token
 			var reqIdx = getNextIdx()
@@ -130,6 +127,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 			if reqIdx < lastProcessedIdx+(config.Connection.AccessSize*2) {
 				// 바로 처리 가능
 				httpProxy(ctx)
+				log.Println("[direct][notoken] reqIdx=", reqIdx, "lastProcessedIdx=", lastProcessedIdx)
 				go func() {
 					lastProcessedIdx = getLastProcessedIdx()
 					if reqIdx > lastProcessedIdx {
@@ -140,6 +138,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					if len(nextReq) > 0 {
 						// 다음 요청이 있으면 처리
 						zaddBucket(nextReq)
+						log.Println("[next][notoken_direct] reqIdx=", reqIdx, "lastProcessedIdx=", lastProcessedIdx, "nextReq=", nextReq)
 					}
 				}()
 			} else {
@@ -155,11 +154,14 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 
 				var token = base64.RawURLEncoding.EncodeToString(buf)
 				pushPendingQueue(token)
+				setHeartbeat(token)
 
 				var rank int64 = 0
 				if reqIdx > lastProcessedIdx {
 					rank = reqIdx - lastProcessedIdx
 				}
+
+				log.Println("[wait][notoken] reqIdx=", reqIdx, "lastProcessedIdx=", lastProcessedIdx, "rank=", rank, "token=", token)
 
 				// if request is post
 				if ctx.IsPost() && string(ctx.Request.Header.Peek("X-ACS-Request")) == "true" {
@@ -195,8 +197,8 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				}
 			}
 		} else {
-			tokenStr := b2s(token)
 			// if token
+			tokenStr := b2s(token)
 			var score = zscoreBucket(tokenStr)
 			if score > 0 {
 				// 바로 처리 가능
@@ -212,8 +214,10 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				ctx.Response.Header.SetCookie(&tokenCookie)
 
 				httpProxy(ctx)
+				var reqIdx = getIdxFromToken(token) // for debug
+				log.Println("[direct][token] reqIdx=", reqIdx, "token=", tokenStr, "score=", score)
 				go func() {
-					var reqIdx = getIdxFromToken(token)
+					//var reqIdx = getIdxFromToken(token)
 					lastProcessedIdx := getLastProcessedIdx()
 					if reqIdx > lastProcessedIdx {
 						setLastProcessedIdx(reqIdx)
@@ -224,6 +228,7 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					if len(nextReq) > 0 {
 						// 다음 요청이 있으면 처리
 						zaddBucket(nextReq)
+						log.Println("[next][token_direct] reqIdx=", reqIdx, "lastProcessedIdx=", lastProcessedIdx, "nextReq=", nextReq)
 					}
 
 					delHeartbeat(tokenStr)
@@ -238,6 +243,9 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				//tokenCookie.SetPath("/")
 				//tokenCookie.SetSecure(true)
 				ctx.Response.Header.SetCookie(&tokenCookie)
+
+				var reqIdx = getIdxFromToken(token) // for debug
+				log.Println("[invaild][token] reqIdx=", reqIdx, " token=", tokenStr)
 
 				if ctx.IsPost() {
 					ctx.SetStatusCode(401)
@@ -300,6 +308,14 @@ func main() {
 	newRedisDB()
 	WaitingHTML, _ = os.ReadFile(config.Server.WaitingHTMLFile)
 
+	logFile, err := os.Create("log.txt")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer logFile.Close()
+
+	log.SetOutput(logFile)
+
 	go func() {
 		for {
 			serverRequest = 0
@@ -321,16 +337,20 @@ func main() {
 					if idx > lastProcessedIdx {
 						lastProcessedIdx = idx
 					}
+
+					log.Println("[gc][remove] reqIdx=", idx)
 				}
 				lastProcessedIdxInRedis := getLastProcessedIdx()
 				if lastProcessedIdx > lastProcessedIdxInRedis {
 					setLastProcessedIdx(lastProcessedIdx)
 				}
+				log.Println("[gc][lastProcessedIdx] lastProcessedIdx=", lastProcessedIdx, "lastProcessedIdxInRedis=", lastProcessedIdxInRedis)
 
 				removedCount := zremrangebyscoreBucket()
-				log.Println("Removed count: ", removedCount)
+				log.Println("[gc] RemovedCount=", removedCount)
 
 				countOfBucket := getCountOfBucket()
+				log.Println("[gc] CountOfBucket=", countOfBucket)
 
 				var cnt = countOfBucket
 				var deletedIdx int64 = 0
@@ -338,8 +358,11 @@ func main() {
 					nextReq := popPendingQueue()
 					if len(nextReq) > 0 {
 						heartbeat := getHeartbeat(nextReq)
+						deletedIdx = getIdxFromToken(s2b(nextReq))
+						log.Println("[gc][pop] nextReq=", nextReq, "reqIdx=", deletedIdx)
 						if heartbeat < 0 {
-							deletedIdx = getIdxFromToken(s2b(nextReq))
+							//deletedIdx = getIdxFromToken(s2b(nextReq))
+							log.Println("[gc][pop][delete] nextReq=", nextReq, "reqIdx=", deletedIdx)
 							go func() {
 								// Heartbeat delete for prevent Memory Leak
 								delHeartbeat(nextReq)
@@ -348,6 +371,7 @@ func main() {
 						}
 
 						zaddBucket(nextReq)
+						log.Println("[gc][pop][add] nextReq=", nextReq, "reqIdx=", deletedIdx)
 						cnt++
 					} else {
 						break
@@ -358,7 +382,7 @@ func main() {
 					setLastProcessedIdx(deletedIdx)
 				}
 
-				log.Println("Added count: ", cnt-countOfBucket)
+				log.Println("[gc] AddedCount: ", cnt-countOfBucket)
 
 				time.Sleep(time.Millisecond * 100)
 			}
