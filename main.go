@@ -342,9 +342,9 @@ func main() {
 					log.Println("[gc][remove] reqIdx=", idx)
 				}
 				lastProcessedIdxInRedis := getLastProcessedIdx()
-				if lastProcessedIdx > lastProcessedIdxInRedis {
-					setLastProcessedIdx(lastProcessedIdx)
-				}
+				//if lastProcessedIdx > lastProcessedIdxInRedis {
+				setLastProcessedIdx(lastProcessedIdx)
+				//}
 				log.Println("[gc][lastProcessedIdx] lastProcessedIdx=", lastProcessedIdx, "lastProcessedIdxInRedis=", lastProcessedIdxInRedis)
 
 				removedCount := zremrangebyscoreBucket()
@@ -367,6 +367,7 @@ func main() {
 							go func() {
 								// Heartbeat delete for prevent Memory Leak
 								delHeartbeat(nextReq)
+								setLastProcessedIdx(deletedIdx)
 							}()
 							continue
 						}
