@@ -4,16 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"github.com/valyala/fasthttp"
+	proxy "github.com/yeqown/fasthttp-reverse-proxy/v2"
 	"log"
 	"math/rand"
 	"os"
-	"reflect"
 	"strings"
 	"time"
-	"unsafe"
-
-	"github.com/valyala/fasthttp"
-	proxy "github.com/yeqown/fasthttp-reverse-proxy/v2"
 )
 
 var (
@@ -289,19 +286,6 @@ func httpProxy(ctx *fasthttp.RequestCtx) {
 func factory(hostAddr string) (*proxy.ReverseProxy, error) {
 	p := proxy.NewReverseProxy(hostAddr, proxy.WithTimeout(time.Duration(config.Proxy.TimeoutMilliseconds)*time.Millisecond))
 	return p, nil
-}
-
-func b2s(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
-}
-
-func s2b(s string) (b []byte) {
-	bh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-	bh.Data = sh.Data
-	bh.Cap = sh.Len
-	bh.Len = sh.Len
-	return b
 }
 
 func main() {
