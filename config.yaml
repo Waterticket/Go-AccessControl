@@ -12,6 +12,7 @@ Server:
   Master: true
   Addr: ":8083"
   WaitingHTMLFile: "template/index.html"
+  UseInLocalhost: true
 
 Client:
   HeartbeatRedisTTLMilliseconds: 10000

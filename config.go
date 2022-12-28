@@ -24,6 +24,7 @@ type ServerConfig struct {
 	Master          bool   `yaml:"Master"`
 	Addr            string `yaml:"Addr"`
 	WaitingHTMLFile string `yaml:"WaitingHTMLFile"`
+	UseInLocalhost  bool   `yaml:"UseInLocalhost"`
 }
 
 type ProxyConfig struct {

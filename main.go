@@ -176,18 +176,22 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 					tokenCookie.SetKey("ACS-Token")
 					tokenCookie.SetValue(token)
 					tokenCookie.SetMaxAge(3600000)
-					//tokenCookie.SetDomain(string(ctx.Host()))
-					//tokenCookie.SetPath("/")
-					//tokenCookie.SetSecure(true)
+					if !config.Server.UseInLocalhost {
+						tokenCookie.SetDomain(string(ctx.Host()))
+						tokenCookie.SetPath("/")
+						tokenCookie.SetSecure(true)
+					}
 					ctx.Response.Header.SetCookie(&tokenCookie)
 
 					rankCookie := fasthttp.Cookie{}
 					rankCookie.SetKey("ACS-Rank")
 					rankCookie.SetValue(fmt.Sprintf("%d", rank))
 					rankCookie.SetMaxAge(60)
-					//rankCookie.SetDomain(string(ctx.Host()))
-					//rankCookie.SetPath("/")
-					//rankCookie.SetSecure(true)
+					if !config.Server.UseInLocalhost {
+						rankCookie.SetDomain(string(ctx.Host()))
+						rankCookie.SetPath("/")
+						rankCookie.SetSecure(true)
+					}
 					ctx.Response.Header.SetCookie(&rankCookie)
 					ctx.Write(WaitingHTML)
 					return
@@ -205,9 +209,11 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				tokenCookie.SetKey("ACS-Token")
 				tokenCookie.SetValue("")
 				tokenCookie.SetMaxAge(-1)
-				//tokenCookie.SetDomain(string(ctx.Host()))
-				//tokenCookie.SetPath("/")
-				//tokenCookie.SetSecure(true)
+				if !config.Server.UseInLocalhost {
+					tokenCookie.SetDomain(string(ctx.Host()))
+					tokenCookie.SetPath("/")
+					tokenCookie.SetSecure(true)
+				}
 				ctx.Response.Header.SetCookie(&tokenCookie)
 
 				httpProxy(ctx)
@@ -236,9 +242,11 @@ func ProxyPoolHandler(ctx *fasthttp.RequestCtx) {
 				tokenCookie.SetKey("ACS-Token")
 				tokenCookie.SetValue("")
 				tokenCookie.SetMaxAge(-1)
-				//tokenCookie.SetDomain(string(ctx.Host()))
-				//tokenCookie.SetPath("/")
-				//tokenCookie.SetSecure(true)
+				if !config.Server.UseInLocalhost {
+					tokenCookie.SetDomain(string(ctx.Host()))
+					tokenCookie.SetPath("/")
+					tokenCookie.SetSecure(true)
+				}
 				ctx.Response.Header.SetCookie(&tokenCookie)
 
 				var reqIdx = getIdxFromToken(token) // for debug
